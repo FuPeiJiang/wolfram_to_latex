@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wolfram to LaTex</title>
+</head>
+<body>
+<script>
+    function create_textarea(label_text) {
+        const label = document.createElement("label")
+        label.textContent = label_text
+        const textarea = document.createElement("textarea")
+        textarea.setAttribute("cols",50)
+        textarea.setAttribute("rows",15)
+        textarea.style.display = "block"
+        label.append(textarea)
+        return [label,textarea]
+    }
+    function horizontal_div(...children) {
+        const div = document.createElement("div")
+        div.style.display = "flex"
+        div.append(...children)
+        return div
+    }
+    const [wolfram_label, wolfram_textarea] = create_textarea("Wolfram")
+    const [latex_label, latex_textarea] = create_textarea("LaTex")
+
+    function p(p_text,a_text) {
+        const p_element = document.createElement("p")
+        p_element.textContent = p_text
+        if (a_text) {
+            const a = document.createElement("a")
+            a.textContent = a_text
+            a.setAttribute("href",a_text)
+            p_element.append(a)
+        }
+        return p_element
+    }
+
+    wolfram_textarea.addEventListener("paste",createHandlePaste(latex_textarea,wolfram_funcs()))
+    latex_textarea.addEventListener("paste",createHandlePaste(wolfram_textarea,latex_funcs()))
+
+    document.body.append(horizontal_div(wolfram_label,latex_label))
+    document.body.append(p("bug report: ","https://github.com/FuPeiJiang/wolfram_to_latex/issues"))
+    document.body.append(p("only pasting is supported, incremental typing is not supported"))
+    document.body.append(p("pasting in LaTex will fill Wolfram, and vice versa"))
+
+    function createHandlePaste(dest_textarea,{lex,parse,convert}) {
+        return function handlePaste(e) {
+            setTimeout(() => {
+                const s1 = e.target.value;console.log(s1);
+                const s2 = lex(s1);console.log(s2);
+                const s3 = parse(s2);console.log(s3);
+                const s4 = convert(s3);console.log(s4);
+                dest_textarea.value = s4
+            }, 1);
+        }
+    }
+
+    const {lex:wolfram_lex,parse:wolfram_parse,convert:wolfram_convert} = wolfram_funcs()
+    const {lex:latex_lex,parse:latex_parse,convert:latex_convert} = latex_funcs()
+
+function wolfram_funcs() {
+
+function lex(str) { //https://craftinginterpreters.com/scanning.html
+    const NUMBERS = {"0":1,"1":1,"2":1,"3":1,"4":1,"5":1,"6":1,"7":1,"8":1,"9":1}
+    const ALPHABET = {"a":1,"b":1,"c":1,"d":1,"e":1,"f":1,"g":1,"h":1,"i":1,"j":1,"k":1,"l":1,"m":1,"n":1,"o":1,"p":1,"q":1,"r":1,"s":1,"t":1,"u":1,"v":1,"w":1,"x":1,"y":1,"z":1,"A":1,"B":1,"C":1,"D":1,"E":1,"F":1,"G":1,"H":1,"I":1,"J":1,"K":1,"L":1,"M":1,"N":1,"O":1,"P":1,"Q":1,"R":1,"S":1,"T":1,"U":1,"V":1,"W":1,"X":1,"Y":1,"Z":1,}
+    const tokens = []
+    let start,c=0
+    while (c<str.length) {
+        switch (str[c]) {
+            case " ": break;
+            case "=": tokens.push({type:"EQUAL"});break;
+            case "+": tokens.push({type:"PLUS"});break;
+            case "-": tokens.push({type:"MINUS"});break;
+            case "×": tokens.push({type:"MULTIPLICATION"});break;
+            case "/": tokens.push({type:"SLASH"});break;
+            case "^": tokens.push({type:"CARET"});break;
+            case "{": tokens.push({type:"LEFT_BRACE"});break;
+            case "}": tokens.push({type:"RIGHT_BRACE"});break;
+            case "[": tokens.push({type:"LEFT_SQUARE_BRACKET"});break;
+            case "]": tokens.push({type:"RIGHT_SQUARE_BRACKET"});break;
+            case "(": tokens.push({type:"LEFT_PAREN"});break;
+            case ")": tokens.push({type:"RIGHT_PAREN"});break;
+            case ",": tokens.push({type:"COMMA"});break;
+            case "0":case "1":case "2":case "3":case "4":case "5":case "6":case "7":case "8":case "9":
+                start = c
+                ++c
+                while (NUMBERS[str[c]]) {
+                    ++c
+                }
+                tokens.push({type:"NUMBER",value:str.slice(start,c)});
+                --c
+                break;
+            case "a":case "b":case "c":case "d":case "e":case "f":case "g":case "h":case "i":case "j":case "k":case "l":case "m":case "n":case "o":case "p":case "q":case "r":case "s":case "t":case "u":case "v":case "w":case "x":case "y":case "z":
+            case "A":case "B":case "C":case "D":case "E":case "F":case "G":case "H":case "I":case "J":case "K":case "L":case "M":case "N":case "O":case "P":case "Q":case "R":case "S":case "T":case "U":case "V":case "W":case "X":case "Y":case "Z":
+                start = c
+                ++c
+                while (ALPHABET[str[c]]) {
+                    ++c
+                }
+                tokens.push({type:"IDENTIFIER",value:str.slice(start,c)});
+                --c
+                break;
+            case "\\": //escape sequence
+                ++c
+                if (str[c]==="(") {
+                    ++c
+                    start = c
+                    while (str[c]!==")") {
+                        ++c
+                    }
+                    const escapeSequence = str.slice(start,c)
+                    switch (escapeSequence) {
+                        case "40":tokens.push({type:"LEFT_PAREN"});break;
+                        case "41":tokens.push({type:"RIGHT_PAREN"});break;
+                    }
+                }
+                break;
+        }
+        ++c
+    }
+    return tokens
+}
+function parse(tokens) {
+
+    let current = 0
+
+    function Binary(left,operator,right) {
+        return {type:"Binary",left,operator,right}
+    }
+    function Unary(operator,right) {
+        return {type:"Unary",operator,right}
+    }
+    function Literal(value) {
+        return {type:"Literal",value}
+    }
+    function Variable(value) {
+        return {type:"Variable",value}
+    }
+    function Call(callee,args) {
+        return {type:"Call",callee,args}
+    }
+    function List(elements) {
+        return {type:"List",elements}
+    }
+
+    function getType() {
+        if (current < tokens.length) {
+            return tokens[current].type
+        }
+        return ""
+    }
+
+    const equality_operators = {"EQUAL":1}
+    function equality() {
+        let expr = term()
+
+        while (equality_operators[getType()]) {
+            const operator = tokens[current]
+            ++current
+            const right = term()
+            expr = Binary(expr, operator, right)
+        }
+        return expr;
+    }
+    const term_operators = {"PLUS":1,"MINUS":1}
+    function term() {
+        let expr = factor()
+
+        while (term_operators[getType()]) {
+            const operator = tokens[current]
+            ++current
+            const right = factor()
+            expr = Binary(expr, operator, right)
+        }
+        return expr;
+    }
+    const factor_operators = {"MULTIPLICATION":1,"SLASH":1}
+    function factor() {
+        let expr = unary()
+
+        while (factor_operators[getType()]) {
+            const operator = tokens[current]
+            ++current
+            const right = unary()
+            expr = Binary(expr, operator, right)
+        }
+        return expr;
+    }
+    const unary_operators = {"MINUS":1}
+    function unary() {
+        if (unary_operators[getType()]) {
+            const operator = tokens[current]
+            ++current
+            const right = unary()
+            return Unary(operator, right)
+        }
+
+        return call();
+    }
+    const call_brackets = {"LEFT_SQUARE_BRACKET":"RIGHT_SQUARE_BRACKET","LEFT_PAREN":"RIGHT_PAREN"}
+    function call() {
+        let expr = primary()
+        let ending_bracket
+        if (expr.type === "Variable" && (ending_bracket=call_brackets[getType()])) {
+            ++current
+            const args = []
+            if (getType()!==ending_bracket) {
+                while (true) {
+                    args.push(equality());
+                    if (getType()!=="COMMA") {
+                        break
+                    }
+                    ++current
+                }
+                ++current
+            }
+
+            expr = Call(expr, args)
+        }
+
+        return expr;
+    }
+    function primary() {
+        if (getType()==="NUMBER") {
+            const expr = Literal(tokens[current])
+            ++current
+            return expr
+        }
+
+        if (getType()==="IDENTIFIER") {
+            const expr = Variable(tokens[current])
+            ++current
+            return expr
+        }
+
+        if (getType()==="LEFT_PAREN") {
+            ++current
+            const expr = term()
+            ++current
+            return expr
+        }
+
+        if (getType()==="LEFT_BRACE") {
+            ++current
+            const elements = []
+            if (getType()!=="RIGHT_BRACE") {
+                while (true) {
+                    elements.push(equality());
+                    if (getType()!=="COMMA") {
+                        break
+                    }
+                    ++current
+                }
+                ++current
+            }
+            return List(elements)
+        }
+    }
+
+    let expr = equality()
+    while (current < tokens.length) {
+        expr = Binary(expr, {type:"MULTIPLICATION"}, equality())
+    }
+
+    return expr
+}
+function convert(expr) {
+    switch (expr.type) {
+        case "Binary":
+            const left = convert(expr.left)
+            const right = convert(expr.right)
+            switch (expr.operator.type) {
+                case "MULTIPLICATION":
+                    return `${left}\\cdot${right}`
+                case "SLASH":
+                    return `\\frac{${left}}{${right}}`
+                case "EQUAL":
+                    return `${left}=${right}`
+                case "PLUS":
+                    return `${left}+${right}`
+                case "MINUS":
+                    return `${left}-${right}`
+                default:
+                    debugger
+            }
+            break;
+        case "Call":
+            switch (expr.callee.value.value) {
+                case "Divide":{
+                    const left = convert(expr.args[0])
+                    const right = convert(expr.args[1])
+                    return `\\frac{${left}}{${right}}`
+                }
+                case "Subscript":{
+                    const left = convert(expr.args[0])
+                    const right = convert(expr.args[1])
+                    switch (expr.args[1].type) {
+                        case "Literal":case "Variable":
+                            return `${left}_${right}`
+                        default:
+                            return `${left}_{${right}}`
+                    }
+                }
+                case "Power":{
+                    const left = convert(expr.args[0])
+                    const right = convert(expr.args[1])
+                    switch (expr.args[1].type) {
+                        case "Literal":case "Variable":
+                            return `${left}^${right}`
+                        default:
+                            return `${left}^{${right}}`
+                    }
+                }
+                default:
+                    debugger
+            }
+            return expr.value.value
+        case "Literal":case "Variable":
+            return expr.value.value
+        default:
+            debugger
+    }
+}
+return {lex,parse,convert}
+}
+
+function latex_funcs() {
+function lex(str) { //https://craftinginterpreters.com/scanning.html
+    const NUMBERS = {"0":1,"1":1,"2":1,"3":1,"4":1,"5":1,"6":1,"7":1,"8":1,"9":1}
+    const ALPHABET = {"a":1,"b":1,"c":1,"d":1,"e":1,"f":1,"g":1,"h":1,"i":1,"j":1,"k":1,"l":1,"m":1,"n":1,"o":1,"p":1,"q":1,"r":1,"s":1,"t":1,"u":1,"v":1,"w":1,"x":1,"y":1,"z":1,"A":1,"B":1,"C":1,"D":1,"E":1,"F":1,"G":1,"H":1,"I":1,"J":1,"K":1,"L":1,"M":1,"N":1,"O":1,"P":1,"Q":1,"R":1,"S":1,"T":1,"U":1,"V":1,"W":1,"X":1,"Y":1,"Z":1,}
+    const tokens = []
+    let start,c=0
+    while (c<str.length) {
+        switch (str[c]) {
+            case "=": tokens.push({type:"EQUAL"});break;
+            case "+": tokens.push({type:"PLUS"});break;
+            case "-": tokens.push({type:"MINUS"});break;
+            case "×": tokens.push({type:"MULTIPLICATION"});break;
+            case "*": tokens.push({type:"STAR"});break;
+            case "/": tokens.push({type:"SLASH"});break;
+            case "^": tokens.push({type:"CARET"});break;
+            case "{": tokens.push({type:"LEFT_BRACE"});break;
+            case "}": tokens.push({type:"RIGHT_BRACE"});break;
+            case "[": tokens.push({type:"LEFT_SQUARE_BRACKET"});break;
+            case "]": tokens.push({type:"RIGHT_SQUARE_BRACKET"});break;
+            case "(": tokens.push({type:"LEFT_PAREN"});break;
+            case ")": tokens.push({type:"RIGHT_PAREN"});break;
+            case ",": tokens.push({type:"COMMA"});break;
+            case "_": tokens.push({type:"UNDERSCORE"});break;
+            case "&": tokens.push({type:"AMPERSAND"});break;
+            case "0":case "1":case "2":case "3":case "4":case "5":case "6":case "7":case "8":case "9":
+                start = c
+                ++c
+                while (NUMBERS[str[c]]) {
+                    ++c
+                }
+                tokens.push({type:"NUMBER",value:str.slice(start,c)});
+                --c
+                break;
+            case "a":case "b":case "c":case "d":case "e":case "f":case "g":case "h":case "i":case "j":case "k":case "l":case "m":case "n":case "o":case "p":case "q":case "r":case "s":case "t":case "u":case "v":case "w":case "x":case "y":case "z":
+            case "A":case "B":case "C":case "D":case "E":case "F":case "G":case "H":case "I":case "J":case "K":case "L":case "M":case "N":case "O":case "P":case "Q":case "R":case "S":case "T":case "U":case "V":case "W":case "X":case "Y":case "Z":
+                tokens.push({type:"LETTER",value:str[c]});break;
+            case "\\": //escape sequence
+                ++c
+                if (str[c]==="\\") {
+                    tokens.push({type:"BACKSLASH",value:str.slice(start,c)});
+                    break;
+                }
+                start = c
+                while (ALPHABET[str[c]]) {
+                    ++c
+                }
+                tokens.push({type:"COMMAND",value:str.slice(start,c)});
+                --c
+                break;
+        }
+        ++c
+    }
+    return tokens
+}
+function parse(tokens) {
+
+    let current = 0
+
+    function Binary(left,operator,right) {
+        return {type:"Binary",left,operator,right}
+    }
+    function Unary(operator,right) {
+        return {type:"Unary",operator,right}
+    }
+    function Literal(value) {
+        return {type:"Literal",value}
+    }
+    function Variable(value) {
+        return {type:"Variable",value}
+    }
+    function Grouping(value,bracket,dynamicSize) {
+        return {type:"Grouping",value,bracket,dynamicSize}
+    }
+    function Call(callee,args) {
+        return {type:"Call",callee,args}
+    }
+    function Integral(subscript,superscript,value,differential) {
+        return {type:"Integral",subscript,superscript,value,differential}
+    }
+    function Matrix(rows) {
+        return {type:"Matrix",rows}
+    }
+
+    function getType() {
+        if (current < tokens.length) {
+            return tokens[current].type
+        }
+        return ""
+    }
+
+    function expression() {
+        let expr = equality()
+        let exprJuxt
+        while ((exprJuxt = equality())) {
+            expr = Binary(expr, {type:"Juxtaposition"}, exprJuxt)
+        }
+        return expr
+    }
+    const equality_operators = {"EQUAL":1}
+    function equality() {
+        let expr
+        if ((expr = term())) {
+            while (equality_operators[getType()]) {
+                const operator = tokens[current]
+                ++current
+                const right = term()
+                expr = Binary(expr, operator, right)
+            }
+            return expr;
+        }
+    }
+    const term_operators = {"PLUS":1,"MINUS":1}
+    function term() {
+        let expr
+        if ((expr = factor())) {
+            while (term_operators[getType()]) {
+                const operator = tokens[current]
+                ++current
+                const right = factor()
+                expr = Binary(expr, operator, right)
+            }
+            return expr;
+        }
+
+    }
+    const factor_operators = {"STAR":1,"MULTIPLICATION":1,"SLASH":1}
+    const factor_commands = {"cdot":1}
+    function factor() {
+        let expr
+        if ((expr = unary())) {
+            while (factor_operators[getType()] || (getType()==="COMMAND" && factor_commands[tokens[current].value])) {
+                const operator = tokens[current]
+                ++current
+                const right = unary()
+                expr = Binary(expr, operator, right)
+            }
+            return expr;
+        }
+    }
+    const unary_operators = {"MINUS":1}
+    function unary() {
+        if (unary_operators[getType()]) {
+            const operator = tokens[current]
+            ++current
+            const right = unary()
+            return Unary(operator, right)
+        }
+
+        return exponent();
+    }
+    const exponent_operators = {"CARET":1,"UNDERSCORE":1}
+    function exponent() {
+        let expr
+        if ((expr = call())) {
+            while (exponent_operators[getType()]) {
+                const operator = tokens[current]
+                ++current
+                const right = call()
+                expr = Binary(expr, operator, right)
+            }
+            return expr;
+        }
+    }
+    const call_brackets = {"LEFT_SQUARE_BRACKET":"RIGHT_SQUARE_BRACKET","LEFT_PAREN":"RIGHT_PAREN","LEFT_BRACE":"RIGHT_BRACE"}
+    function call() {
+        let expr
+        if ((expr = primary())) {
+            if (expr.type === "COMMAND") {
+                let argsCount
+                switch (expr.value) {
+                    case "frac":argsCount = 2;break;
+                    case "ln":argsCount = 1;break;
+                    case "sqrt":argsCount = 1;break;
+                    case "right":return;
+                }
+
+                const args = []
+                for (let i = 0; i < argsCount; ++i) {
+                    const arg = equality()
+                    if (arg.bracket.type === "LEFT_SQUARE_BRACKET") {
+                        ++argsCount
+                    }
+                    args.push(arg);
+                }
+
+                expr = Call(expr, args)
+            }
+
+            return expr;
+        }
+    }
+    function primary() {
+        if (getType()==="NUMBER") {
+            const expr = Literal(tokens[current])
+            ++current
+            return expr
+        }
+
+        if (getType()==="LETTER") {
+            const expr = tokens[current]
+            ++current
+            return expr
+        }
+
+        let dynamicSize = false
+        if (getType()==="COMMAND") {
+            switch (tokens[current].value) {
+                case "left":
+                    dynamicSize = true
+                    ++current
+                    break;
+                case "int":{
+                    let subscript,superscript
+                    ++current
+                    while (true) {
+                        switch (getType()) {
+                            case "UNDERSCORE":{
+                                ++current
+                                subscript = primary()
+                                continue;
+                            }
+                            case "CARET":
+                                ++current
+                                superscript = primary()
+                                continue;
+                        }
+                        break
+                    }
+                    let expr = factor()
+                    while (true) {
+                        const expr_maybe_differential = factor()
+                        if (expr_maybe_differential.type === "LETTER" && expr_maybe_differential.value === "d") {
+                            return Integral(subscript,superscript,expr,factor())
+                        }
+                        expr = Binary(expr, {type:"Juxtaposition"}, expr_maybe_differential)
+                    }
+                }
+                case "begin":{
+                    current+=2
+                    const toJoin = []
+                    while (getType()!=="RIGHT_BRACE") {
+                        toJoin.push(tokens[current].value)
+                        ++current
+                    }
+                    ++current
+                    const value = toJoin.join("")
+                    switch (value) {
+                        case "pmatrix":
+                            if (getType()!=="COMMAND" || tokens[current].value!=="end") {
+                                let row = []
+                                const rows = [row]
+                                while (true) {
+                                    row.push(expression());
+                                    switch (getType()) {
+                                        case "AMPERSAND":
+                                            break;
+                                        case "BACKSLASH":
+                                            row = []
+                                            rows.push(row)
+                                            break;
+                                        default:
+                                            return Matrix(rows)
+                                    }
+                                    ++current
+                                }
+                            }
+                            break;
+                    }
+                    break;
+                }
+                case "end":
+                    ++current
+                    while (getType()!=="RIGHT_BRACE") {
+                        ++current
+                    }
+                    ++current
+                    return;
+                default:
+                    const expr = tokens[current]
+                    ++current
+                    return expr
+            }
+        }
+
+        if (call_brackets[getType()]) {
+            const bracket = tokens[current]
+            ++current
+            const expr = Grouping(expression(),bracket,dynamicSize)
+            if (dynamicSize) {
+                ++current
+            }
+            ++current
+            return expr
+        }
+    }
+
+    return expression()
+}
+function convert(expr) {
+    switch (expr.type) {
+        case "Binary":{
+            const left = convert(expr.left)
+            const right = convert(expr.right)
+            switch (expr.operator.type) {
+                case "COMMAND":
+                    switch (expr.operator.value) {
+                        case "cdot":
+                            return `${left}×${right}`
+                        default:
+                            debugger
+                    }
+                    break;
+                case "UNDERSCORE":
+                    return `Subscript[${left},${right}]`
+                case "CARET":
+                    return `Power[${left},${right}]`
+                case "EQUAL":
+                    return `${left}=${right}`
+                case "PLUS":
+                    return `${left}+${right}`
+                case "MINUS":
+                    return `${left}-${right}`
+                case "STAR":
+                    return `${left}×${right}`
+                case "SLASH":
+                    return `Divide[${left},${right}]`
+                default:
+                    debugger
+            }
+
+        }
+        case "Matrix":{
+            const toJoin = ["{{"]
+            const rows = expr.rows
+            for (let i = 0; i < rows.length; i++) {
+                if (i>0) {
+                    toJoin.push("},{")
+                }
+                const row = rows[i]
+                for (let j = 0; j < row.length; j++) {
+                    if (j>0) {
+                        toJoin.push(",")
+                    }
+                    toJoin.push(convert(row[j]))
+                }
+            }
+            toJoin.push("}}")
+            return toJoin.join("")
+        }
+        case "LETTER":
+            return expr.value
+        case "Literal":
+            return expr.value.value
+        case "Unary":{
+            const right = convert(expr.right)
+            let operator
+            switch (expr.operator.type) {
+                case "MINUS":operator="-";break;
+                default:debugger
+            }
+            return `${operator}${right}`
+        }
+        case "Grouping":
+            return convert(expr.value)
+        default:
+            break;
+    }
+}
+return {lex,parse,convert}
+}
+
+</script>
+</body>
+</html>
