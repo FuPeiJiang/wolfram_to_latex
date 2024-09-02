@@ -419,6 +419,9 @@ function parse(tokens) {
     function Matrix(rows) {
         return {type:"Matrix",rows}
     }
+    function GREEK_LETTER(letter) {
+        return {type:"LETTER",value:letter}
+    }
 
     function getType() {
         if (current < tokens.length) {
@@ -511,6 +514,12 @@ function parse(tokens) {
                     case "ln":argsCount = 1;break;
                     case "sqrt":argsCount = 1;break;
                     case "right":return;
+
+                    case "pi":return GREEK_LETTER("π");
+                    case "varphi":return GREEK_LETTER("φ");
+                    case "theta":return GREEK_LETTER("θ");
+                    case "alpha":return GREEK_LETTER("α");
+                    case "beta":return GREEK_LETTER("β");
                 }
 
                 const args = []
@@ -663,6 +672,8 @@ function convert(expr) {
                     return `${left}×${right}`
                 case "SLASH":
                     return `Divide[${left},${right}]`
+                case "Juxtaposition":
+                    return `${left}${right}`
                 default:
                     debugger
             }
@@ -701,8 +712,7 @@ function convert(expr) {
         }
         case "Grouping":
             return convert(expr.value)
-        default:
-            break;
+        default:debugger
     }
 }
 return {lex,parse,convert}
