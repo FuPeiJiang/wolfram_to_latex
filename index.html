@@ -594,6 +594,7 @@ function parse(tokens) {
                     const value = toJoin.join("")
                     switch (value) {
                         case "pmatrix":
+                        case "bmatrix":
                             if (getType()!=="COMMAND" || tokens[current].value!=="end") {
                                 let row = []
                                 const rows = [row]
