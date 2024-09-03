@@ -513,6 +513,8 @@ function parse(tokens) {
                     case "frac":argsCount = 2;break;
                     case "ln":argsCount = 1;break;
                     case "sqrt":argsCount = 1;break;
+                    case "cos":argsCount = 1;break;
+                    case "sin":argsCount = 1;break;
                     case "right":return;
 
                     case "pi":return GREEK_LETTER("π");
@@ -520,12 +522,13 @@ function parse(tokens) {
                     case "theta":return GREEK_LETTER("θ");
                     case "alpha":return GREEK_LETTER("α");
                     case "beta":return GREEK_LETTER("β");
+                    default:debugger
                 }
 
                 const args = []
                 for (let i = 0; i < argsCount; ++i) {
                     const arg = equality()
-                    if (arg.bracket.type === "LEFT_SQUARE_BRACKET") {
+                    if (arg.bracket && arg.bracket.type === "LEFT_SQUARE_BRACKET") {
                         ++argsCount
                     }
                     args.push(arg);
@@ -713,6 +716,27 @@ function convert(expr) {
         }
         case "Grouping":
             return convert(expr.value)
+        case "Call":
+            switch (expr.callee.value) {
+                case "frac":{
+                    const left = convert(expr.args[0])
+                    const right = convert(expr.args[1])
+                    return `Divide[${left},${right}]`
+                }
+                case "ln":{
+                    const antilogarithm = convert(expr.args[0])
+                    return `Log[${antilogarithm}]`
+                }
+                case "cos":{
+                    const angle = convert(expr.args[0])
+                    return `Cos[${angle}]`
+                }
+                case "sin":{
+                    const angle = convert(expr.args[0])
+                    return `Sin[${angle}]`
+                }
+                default:debugger
+            }
         default:debugger
     }
 }
