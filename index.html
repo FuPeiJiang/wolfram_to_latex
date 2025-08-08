@@ -497,7 +497,7 @@ function parse(tokens) {
             while (exponent_operators[getType()]) {
                 const operator = tokens[current]
                 ++current
-                const right = call()
+                const right = brace_or_something(call)
                 expr = Binary(expr, operator, right)
             }
             return expr;
@@ -527,10 +527,17 @@ function parse(tokens) {
 
                 const args = []
                 for (let i = 0; i < argsCount; ++i) {
-                    const arg = equality()
-                    if (arg.bracket && arg.bracket.type === "LEFT_SQUARE_BRACKET") {
+                    switch (getType()) {
+                        case "LEFT_BRACE":
+                            break
+                        case "LEFT_SQUARE_BRACKET":
                         ++argsCount
+                            break
+                        default: debugger
                     }
+                    ++current
+                    const arg = expression()
+                    ++current
                     args.push(arg);
                 }
 
@@ -540,6 +547,17 @@ function parse(tokens) {
             return expr;
         }
     }
+
+    function brace_or_something(something) {
+        if (getType()==="LEFT_BRACE") {
+            ++current
+            const expr = something()
+            ++current
+            return expr
+        }
+        return primary()
+    }
+
     function primary() {
         if (getType()==="NUMBER") {
             const expr = Literal(tokens[current])
@@ -567,12 +585,12 @@ function parse(tokens) {
                         switch (getType()) {
                             case "UNDERSCORE":{
                                 ++current
-                                subscript = primary()
+                                subscript = brace_or_something(primary)
                                 continue;
                             }
                             case "CARET":
                                 ++current
-                                superscript = primary()
+                                superscript = brace_or_something(primary)
                                 continue;
                         }
                         break
@@ -634,7 +652,7 @@ function parse(tokens) {
             }
         }
 
-        if (call_brackets[getType()]) {
+        if (getType()==="LEFT_PAREN") {
             const bracket = tokens[current]
             ++current
             const expr = Grouping(expression(),bracket,dynamicSize)
@@ -715,7 +733,11 @@ function convert(expr) {
             return `${operator}${right}`
         }
         case "Grouping":
-            return convert(expr.value)
+            switch (expr.bracket.type) {
+                case "LEFT_PAREN":
+                    return `(${convert(expr.value)})`
+                default: return convert(expr.value)
+            }
         case "Call":
             switch (expr.callee.value) {
                 case "frac":{
